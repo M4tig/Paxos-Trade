@@ -19,8 +19,19 @@
 		
 		<version.maven-compiler-plugin>3.8.1</version.maven-compiler-plugin>
 		<version.exec-maven-plugin>3.0.0</version.exec-maven-plugin>
+		<version.maven-surefire-plugin>3.5.2</version.maven-surefire-plugin>
+		<version.junit>5.11.4</version.junit>
 	</properties>
 
+	<dependencies>
+		<!-- JUnit 5, for the unit tests under src/test/java -->
+		<dependency>
+			<groupId>org.junit.jupiter</groupId>
+			<artifactId>junit-jupiter</artifactId>
+			<version>${version.junit}</version>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
 
 	<build>
 		<!-- Plug-ins allow for the reuse of common build logic across multiple projects. 
@@ -49,6 +60,13 @@
 						</goals>
 					</execution>
 				</executions>
+			</plugin>
+			<!-- Plug-in that runs the JUnit tests. The version Maven binds by
+				default is too old to detect JUnit 5 tests. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<version>${version.maven-surefire-plugin}</version>
 			</plugin>
 		</plugins>
 	</build>
