@@ -107,9 +107,11 @@ PaxosLog slot -> request/command ID -> RequestHistory record -> command payload
 
 7. **Phase 1 asks acceptors about the slot.** The leader sends
    `PhaseOneRequest(instance, requestballot)` to the ballot's configured acceptors. In
-   `DidaTradePaxosServiceImpl.phaseone(...)`, an acceptor accepts the prepare when the
-   requested ballot is at least its current server ballot. Its reply includes the value
-   and write ballot already stored for the instance.
+   `DidaTradePaxosServiceImpl.phaseone(...)` returns `accepted=true` for the Phase 1
+   request when the requested ballot is at least the server's current ballot. In that
+   case, the acceptor advances its current ballot if needed, records the Phase 1 ballot
+   in `read_ballot`, and replies with the value and write ballot already stored for the
+   instance.
 
    Phase 1 may therefore replace the leader's initially chosen pending request ID with a
    previously accepted request ID. In the current baseline, `MainLoop` uses
