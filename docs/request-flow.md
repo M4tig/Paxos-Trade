@@ -10,39 +10,53 @@ Phase 1 work.
 ```text
 Client / DidaTradeApp.buy
         |
-        | BuyRequest(reqid, userid, quantity), sent to every replica
+        | broadcasts BuyRequest(reqid, userid, quantity)
         v
-DidaTradeMainServiceImpl.buy
-        |
-        | RequestRecord(reqid, DidaTradeCommand)
-        v
-RequestHistory.pending
-        |
-        | wake MainLoop; RPC handler waits on RequestRecord
-        v
-MainLoop processes the next sequential Paxos instance
-        |
-        +--> Phase 1 selects/carries forward a command ID
-        |
-        +--> Phase 2 proposes (instance, ballot, command ID)
-        |
-        v
-PaxosLog[instance] = decided command ID
-        |
-        | RequestHistory[command ID]
-        v
-DidaTradeCommand -> TradeManager.acquire(...)
-        |
-        v
-RequestRecord.setResponse(result)
-        |
-        | wakes the waiting server RPC handler
-        v
-DidaTradeMainServiceImpl -> BuyReply(reqid, result)
-        |
-        v
-Client response collector
++--------------------------- EVERY REPLICA ----------------------------+
+| DidaTradeMainServiceImpl.buy                                         |
+|        |                                                             |
+|        v                                                             |
+| RequestHistory.pending -> wake MainLoop; RPC handler waits           |
+|        |                                                             |
+|        v                                                             |
+| MainLoop processes the next sequential Paxos instance                |
++--------+-------------------------------------------------------------+
+         |
+         | only the configured ballot leader proposes
+         v
++----------------------- LEADER / PROPOSER ONLY -----------------------+
+| Phase 1: select or carry forward a command ID                        |
+| Phase 2: propose (instance, ballot, command ID)                      |
++--------+-------------------------------------------------------------+
+         |
+         | Phase 1 and Phase 2 RPCs
+         v
++------------------------ CONFIGURED ACCEPTORS ------------------------+
+| DidaTradePaxosServiceImpl handles prepare/accept requests            |
+| Accepted Phase 2 values are sent to every learner                    |
++--------+-------------------------------------------------------------+
+         |
+         | LearnRequest(instance, ballot, command ID)
+         v
++---------------------- EVERY REPLICA / LEARNER -----------------------+
+| PaxosLog[instance] = decided command ID                              |
+|        |                                                             |
+|        v                                                             |
+| RequestHistory[command ID] -> DidaTradeCommand                       |
+|        |                                                             |
+|        v                                                             |
+| TradeManager.acquire(...) -> RequestRecord.setResponse(...)          |
+|        |                                                             |
+|        v                                                             |
+| DidaTradeMainServiceImpl -> BuyReply(reqid, result)                  |
++--------+-------------------------------------------------------------+
+         |
+         v
+Client response collector (currently continues after one reply)
 ```
+
+The role boundaries describe actions, not necessarily different machines. A replica can
+simultaneously be the ballot leader, a configured acceptor, and a learner.
 
 The central relationship is:
 
