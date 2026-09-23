@@ -2,13 +2,14 @@ package didatrade.server;
 
 public class PaxosInstance {
 	int instance_nb;
-	int command_id;
+	volatile int command_id;
 	int read_ballot;
 	int write_ballot;
-	int accept_ballot;
+	volatile int accept_ballot;
 	int n_accepts;
-	boolean decided;
+	volatile boolean decided;
 	boolean value_is_locked;
+	private boolean executed;
 
 	public PaxosInstance() {
 		this.instance_nb = 0;
@@ -19,6 +20,7 @@ public class PaxosInstance {
 		this.n_accepts = 0;
 		this.decided = false;
 		this.value_is_locked = false;
+		this.executed = false;
 	}
 
 	public PaxosInstance(int id) {
@@ -30,6 +32,7 @@ public class PaxosInstance {
 		this.n_accepts = 0;
 		this.decided = false;
 		this.value_is_locked = false;
+		this.executed = false;
 	}
 
 	public PaxosInstance(int id, int ballot) {
@@ -41,5 +44,35 @@ public class PaxosInstance {
 		this.n_accepts = 0;
 		this.decided = false;
 		this.value_is_locked = false;
+		this.executed = false;
+	}
+
+	public synchronized boolean decide (int ballot, int value) {
+		if (this.decided)
+			return false;
+		this.command_id = value;
+		this.accept_ballot = ballot;
+		this.decided = true;
+		return true;
+	}
+
+	public boolean isDecided () {
+		return this.decided;
+	}
+
+	public int getCommandId () {
+		return this.command_id;
+	}
+
+	public int getAcceptBallot () {
+		return this.accept_ballot;
+	}
+
+	public synchronized boolean isExecuted () {
+		return this.executed;
+	}
+
+	public synchronized void markExecuted () {
+		this.executed = true;
 	}
 }

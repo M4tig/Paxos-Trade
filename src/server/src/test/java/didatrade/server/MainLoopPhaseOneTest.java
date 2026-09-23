@@ -2,6 +2,7 @@ package didatrade.server;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 
@@ -41,6 +42,12 @@ class MainLoopPhaseOneTest {
 
 		assertFalse (result.aborted);
 		assertEquals (301, result.value);
+	}
+
+	@Test
+	void staleBallotCannotProceedToPhaseTwo () {
+		assertFalse (MainLoop.canProposeAt (5, 8, 2, 2));
+		assertTrue (MainLoop.canProposeAt (8, 8, 2, 2));
 	}
 
 	private PhaseOneResponseProcessor completedProcessor (
