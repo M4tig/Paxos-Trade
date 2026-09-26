@@ -87,6 +87,18 @@ public final class DidaTradeServerState {
 			this.current_ballot = ballot;
 	}
 
+	public synchronized boolean canProposeFor (int ballot) {
+		if (ballot < 0)
+			return false;
+		return canProposeFor (ballot, this.current_ballot,
+				this.scheduler.leader (ballot), this.my_id);
+	}
+
+	static boolean canProposeFor (
+			int ballot, int current_ballot, int leader, int server_id) {
+		return ballot >= 0 && ballot == current_ballot && leader == server_id;
+	}
+
 	// Test-only construction avoids starting RPC channels and the MainLoop thread.
 	DidaTradeServerState() {
 		this.current_ballot = 0;

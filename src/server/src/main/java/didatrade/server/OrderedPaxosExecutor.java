@@ -1,62 +1,78 @@
 package didatrade.server;
 
-import java.util.HashSet;
-import java.util.Set;
-
-/** Drains decided Paxos instances strictly in increasing slot order. */
+/** Only MainLoop calls this executor; PaxosInstance still synchronizes with RPC threads. */
 final class OrderedPaxosExecutor {
-	interface CommandExecutor {
-		boolean execute (int command_id);
-	}
-
+	private final DidaTradeServerState server_state;
 	private int next_instance_to_execute;
-	private final Set<Integer> executed_commands;
 
-	OrderedPaxosExecutor() {
+	OrderedPaxosExecutor(DidaTradeServerState state) {
+		this.server_state = state;
 		this.next_instance_to_execute = 0;
-		this.executed_commands = new HashSet<> ();
 	}
 
-	synchronized int nextInstanceToExecute () {
+	int getNextInstanceToExecute () {
 		return this.next_instance_to_execute;
 	}
 
-	int drain (PaxosLog log, CommandExecutor command_executor) {
-		int executed = 0;
+	int drain () {
+		int executed_count = 0;
 		while (true) {
-			int instance = this.nextInstanceToExecute ();
-			PaxosInstance entry = log.getEntry (instance);
+			PaxosInstance entry = this.server_state.paxos_log.getEntry (this.next_instance_to_execute);
 			if (entry == null || !entry.isDecided ())
-				return executed;
-
-			if (entry.isExecuted ()) {
-				this.advance (instance);
-				executed++;
-				continue;
-			}
-
-			int command_id = entry.getCommandId ();
-			if (!this.wasExecuted (command_id)
-					&& !command_executor.execute (command_id))
-				return executed;
-
-			this.rememberExecuted (command_id);
+				return executed_count;
+			if (!entry.isExecuted () && !this.executeCommand (entry.getCommandId ()))
+				return executed_count;
 			entry.markExecuted ();
-			this.advance (instance);
-			executed++;
+			this.next_instance_to_execute++;
+			executed_count++;
 		}
 	}
 
-	private synchronized void advance (int executed_instance) {
-		if (executed_instance == this.next_instance_to_execute)
-			this.next_instance_to_execute++;
+	private boolean executeCommand (int command_id) {
+		RequestRecord record = this.server_state.req_history.getIfExists (command_id);
+		if (record == null)
+			return false; // A later client arrival wakes MainLoop; never skip this slot.
+		if (this.server_state.req_history.getIfProcessed (command_id) != null)
+			return true;
+
+		boolean result = this.executeAction (record.getRequest ());
+		record.setResponse (result);
+		this.server_state.req_history.moveToProcessed (command_id);
+		return true;
 	}
 
-	private synchronized boolean wasExecuted (int command_id) {
-		return this.executed_commands.contains (command_id);
-	}
-
-	private synchronized void rememberExecuted (int command_id) {
-		this.executed_commands.add (command_id);
+	private boolean executeAction (DidaTradeCommand command) {
+		boolean result = false;
+		int balance;
+		switch (command.getAction ()) {
+			case DidaTradeAction.POPULATE :
+				result = this.server_state.trade_manager.populate (command.getQuantity ());
+				break;
+			case DidaTradeAction.ADDUSER :
+				result = this.server_state.trade_manager.add_user (
+						command.getUserId (), command.getQuantity (), command.getStock ());
+				break;
+			case DidaTradeAction.SELL :
+				result = this.server_state.trade_manager.sell (
+						command.getUserId (), command.getQuantity ());
+				break;
+			case DidaTradeAction.BUY :
+				result = this.server_state.trade_manager.acquire (
+						command.getUserId (), command.getQuantity ());
+				break;
+			case DidaTradeAction.BALANCE :
+				balance = this.server_state.trade_manager.balance (command.getUserId ());
+				command.setQuantity (balance);
+				result = balance != -1;
+				break;
+			case DidaTradeAction.DUMP :
+				this.server_state.trade_manager.dump ();
+				result = true;
+				break;
+			default :
+				System.err.println ("*** Unknown command ****");
+				break;
+		}
+		return result;
 	}
 }

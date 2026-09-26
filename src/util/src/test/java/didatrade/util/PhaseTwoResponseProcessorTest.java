@@ -26,7 +26,7 @@ class PhaseTwoResponseProcessorTest {
 	}
 
 	@Test
-	void twoAcceptedRepliesCompleteTheQuorum () {
+	void quorumOfAcceptedRepliesCompletesPhaseTwo () {
 		PhaseTwoResponseProcessor processor = new PhaseTwoResponseProcessor (2);
 		GenericResponseCollector<DidaTradePaxos.PhaseTwoReply> collector = collector (processor);
 
