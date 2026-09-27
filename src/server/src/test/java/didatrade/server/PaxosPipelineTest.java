@@ -116,7 +116,7 @@ class PaxosPipelineTest {
 	@Test
 	void fixedPoolRunsDifferentSlotsConcurrently () throws Exception {
 		CountDownLatch completions = new CountDownLatch (PaxosPipeline.CAPACITY);
-		PaxosPipeline pipeline = new PaxosPipeline (null, completions::countDown);
+		PaxosPipeline pipeline = new PaxosPipeline (completions::countDown);
 		CountDownLatch started = new CountDownLatch (PaxosPipeline.CAPACITY);
 		CountDownLatch release = new CountDownLatch (1);
 		CountDownLatch done = new CountDownLatch (PaxosPipeline.CAPACITY);

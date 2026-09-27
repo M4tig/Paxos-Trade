@@ -15,12 +15,8 @@ public class PaxosInstance {
 	private boolean decided;
 	boolean value_is_locked;
 	private boolean executed;
-	private int proposed_request_id = -1;
-	private boolean claimed;
-	private int retry_ballot = -1;
-	private long retry_after_nanos;
-	private int phase_two_ballot = -1;
-	private int phase_two_value;
+	// This server's attempt to propose the slot.
+	private final LocalProposal proposal = new LocalProposal ();
 
 	public PaxosInstance() {
 		this.instance_nb = 0;
@@ -98,54 +94,49 @@ public class PaxosInstance {
 	}
 
 	public synchronized int getProposedRequestId () {
-		return this.proposed_request_id;
+		return this.proposal.proposed_request_id;
 	}
 
 	public synchronized int getUnexecutedRequestId () {
 		if (this.executed)
 			return -1;
-		return this.decided ? this.command_id : this.proposed_request_id;
+		return this.decided ? this.command_id : this.proposal.proposed_request_id;
 	}
 
 	public synchronized void setProposedRequestId (int request_id) {
 		if (!this.decided)
-			this.proposed_request_id = request_id;
+			this.proposal.proposed_request_id = request_id;
 	}
 
-	// A ballot must never send two different values, including across retries.
 	public synchronized int phaseTwoValueFor (int ballot, int selected_value) {
-		if (ballot < this.phase_two_ballot)
-			throw new IllegalStateException ("Cannot restart an older Phase 2 ballot");
-		if (ballot > this.phase_two_ballot) {
-			this.phase_two_ballot = ballot;
-			this.phase_two_value = selected_value;
-		}
-		return this.phase_two_value;
+		return this.proposal.phaseTwoValueFor (ballot, selected_value);
 	}
 
 	// A claim belongs to one local worker; it is unrelated to Paxos acceptance.
 	public synchronized boolean tryClaim (int ballot, long now_nanos) {
-		if (this.claimed || this.decided || this.proposed_request_id < 0
-				|| (this.retry_ballot == ballot && now_nanos < this.retry_after_nanos))
+		if (this.proposal.claimed || this.decided || this.proposal.proposed_request_id < 0
+				|| (this.proposal.retry_ballot == ballot
+						&& now_nanos < this.proposal.retry_after_nanos))
 			return false;
-		this.claimed = true;
+		this.proposal.claimed = true;
 		return true;
 	}
 
 	public synchronized long releaseClaim (int ballot, long retry_delay_nanos) {
-		this.claimed = false;
-		this.retry_ballot = ballot;
-		this.retry_after_nanos = System.nanoTime () + retry_delay_nanos;
-		return this.retry_after_nanos;
+		this.proposal.claimed = false;
+		this.proposal.retry_ballot = ballot;
+		this.proposal.retry_after_nanos = System.nanoTime () + retry_delay_nanos;
+		return this.proposal.retry_after_nanos;
 	}
 
 	// -1 means no retry is scheduled; a positive result is a bounded wait.
 	public synchronized long retryDelayMillis (int ballot, long now_nanos) {
-		if (this.claimed || this.decided || this.proposed_request_id < 0)
+		if (this.proposal.claimed || this.decided || this.proposal.proposed_request_id < 0)
 			return -1;
-		if (this.retry_ballot != ballot || now_nanos >= this.retry_after_nanos)
+		if (this.proposal.retry_ballot != ballot
+				|| now_nanos >= this.proposal.retry_after_nanos)
 			return 0;
-		long remaining = this.retry_after_nanos - now_nanos;
+		long remaining = this.proposal.retry_after_nanos - now_nanos;
 		return Math.max (1, (remaining + 999_999) / 1_000_000);
 	}
 
@@ -176,6 +167,26 @@ public class PaxosInstance {
 
 	public synchronized void markExecuted () {
 		this.executed = true;
+	}
+
+	private static final class LocalProposal {
+		private int proposed_request_id = -1;
+		private boolean claimed;
+		private int retry_ballot = -1;
+		private long retry_after_nanos;
+		private int phase_two_ballot = -1;
+		private int phase_two_value;
+
+		// A ballot must never send two different values, including across retries.
+		private int phaseTwoValueFor (int ballot, int selected_value) {
+			if (ballot < this.phase_two_ballot)
+				throw new IllegalStateException ("Cannot restart an older Phase 2 ballot");
+			if (ballot > this.phase_two_ballot) {
+				this.phase_two_ballot = ballot;
+				this.phase_two_value = selected_value;
+			}
+			return this.phase_two_value;
+		}
 	}
 
 	public static final class PhaseOneState {

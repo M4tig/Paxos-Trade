@@ -6,12 +6,14 @@ public class MainLoop implements Runnable {
 
 	private boolean has_work;
 	private final PaxosPipeline pipeline;
+	private final PaxosProposer proposer;
 	private final OrderedPaxosExecutor ordered_executor;
 
 	public MainLoop(DidaTradeServerState state) {
 		this.server_state = state;
 		this.has_work = true;
-		this.pipeline = new PaxosPipeline (state, this::signal);
+		this.pipeline = new PaxosPipeline (this::signal);
+		this.proposer = new PaxosProposer (state);
 		this.ordered_executor = new OrderedPaxosExecutor (state);
 	}
 
@@ -64,7 +66,7 @@ public class MainLoop implements Runnable {
 					instance, this.server_state.req_history);
 			if (entry == null || !entry.tryClaim (ballot, System.nanoTime ()))
 				continue;
-			if (!this.pipeline.submit (entry, ballot)) {
+			if (!this.pipeline.submitTask ( () -> this.proposer.propose (entry, ballot))) {
 				entry.releaseClaim (ballot, 0);
 				break;
 			}

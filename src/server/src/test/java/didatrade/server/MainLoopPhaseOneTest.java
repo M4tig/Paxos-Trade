@@ -24,7 +24,7 @@ class MainLoopPhaseOneTest {
 				reply (0, -1, 0),
 				reply (1, -1, 0));
 
-		PaxosPipeline.PhaseOneResult result = PaxosPipeline.evaluatePhaseOneResult (
+		PaxosProposer.PhaseOneResult result = PaxosProposer.evaluatePhaseOneResult (
 				processor, PROPOSED_VALUE);
 
 		assertFalse (result.aborted);
@@ -37,7 +37,7 @@ class MainLoopPhaseOneTest {
 				reply (0, 4, 301),
 				reply (1, 2, 201));
 
-		PaxosPipeline.PhaseOneResult result = PaxosPipeline.evaluatePhaseOneResult (
+		PaxosProposer.PhaseOneResult result = PaxosProposer.evaluatePhaseOneResult (
 				processor, PROPOSED_VALUE);
 
 		assertFalse (result.aborted);
@@ -71,7 +71,7 @@ class MainLoopPhaseOneTest {
 		// A different Phase 1 quorum could now report an older accepted value.
 		PhaseOneResponseProcessor retry = completedProcessor (
 				reply (0, 4, 301), reply (1, -1, 0));
-		PaxosPipeline.PhaseOneResult selected = PaxosPipeline.evaluatePhaseOneResult (
+		PaxosProposer.PhaseOneResult selected = PaxosProposer.evaluatePhaseOneResult (
 				retry, PROPOSED_VALUE);
 		assertEquals (301, selected.value);
 		assertEquals (101, entry.phaseTwoValueFor (REQUEST_BALLOT, selected.value));
