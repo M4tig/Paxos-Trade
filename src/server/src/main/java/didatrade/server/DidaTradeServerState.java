@@ -102,6 +102,7 @@ public final class DidaTradeServerState {
 	// Test-only construction avoids starting RPC channels and the MainLoop thread.
 	DidaTradeServerState() {
 		this.current_ballot = 0;
+		this.debug_state = new DebugState ();
 	}
 
 	// Lock order: server state, then one PaxosInstance. No RPC runs under either lock.
@@ -115,10 +116,10 @@ public final class DidaTradeServerState {
 
 	public synchronized PhaseTwoState processPhaseTwo (
 			PaxosInstance entry, int ballot, int value) {
-		boolean accepted = ballot >= this.current_ballot;
-		if (accepted) {
+		boolean accepted = false;
+		if (ballot >= this.current_ballot) {
 			this.current_ballot = ballot;
-			entry.accept (ballot, value);
+			accepted = entry.accept (ballot, value);
 		}
 		return new PhaseTwoState (accepted, this.current_ballot);
 	}

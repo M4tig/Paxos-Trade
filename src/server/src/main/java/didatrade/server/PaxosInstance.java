@@ -1,6 +1,8 @@
 package didatrade.server;
 
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 public class PaxosInstance {
@@ -10,8 +12,7 @@ public class PaxosInstance {
 	private int write_ballot;
 	private int accepted_value;
 	private int accept_ballot;
-	private int learned_value;
-	private final Set<Integer> accepted_by = new HashSet<> ();
+	private final Map<Integer, LearnVotes> learn_votes = new HashMap<> ();
 	private boolean decided;
 	boolean value_is_locked;
 	private boolean executed;
@@ -19,29 +20,11 @@ public class PaxosInstance {
 	private final LocalProposal proposal = new LocalProposal ();
 
 	public PaxosInstance() {
-		this.instance_nb = 0;
-		this.command_id = 0;
-		this.read_ballot = -1;
-		this.write_ballot = -1;
-		this.accepted_value = 0;
-		this.accept_ballot = -1;
-		this.learned_value = 0;
-		this.decided = false;
-		this.value_is_locked = false;
-		this.executed = false;
+		this (0, -1);
 	}
 
 	public PaxosInstance(int id) {
-		this.instance_nb = id;
-		this.command_id = 0;
-		this.read_ballot = -1;
-		this.write_ballot = -1;
-		this.accepted_value = 0;
-		this.accept_ballot = -1;
-		this.learned_value = 0;
-		this.decided = false;
-		this.value_is_locked = false;
-		this.executed = false;
+		this (id, -1);
 	}
 
 	public PaxosInstance(int id, int ballot) {
@@ -51,7 +34,6 @@ public class PaxosInstance {
 		this.write_ballot = -1;
 		this.accepted_value = 0;
 		this.accept_ballot = -1;
-		this.learned_value = 0;
 		this.decided = false;
 		this.value_is_locked = false;
 		this.executed = false;
@@ -65,32 +47,37 @@ public class PaxosInstance {
 				accepted, this.accepted_value, this.write_ballot, maxballot);
 	}
 
-	public synchronized void accept (int ballot, int value) {
+	public synchronized boolean accept (int ballot, int value) {
+		if (this.decided && value != this.command_id)
+			return false;
 		this.accepted_value = value;
 		this.write_ballot = ballot;
+		return true;
 	}
 
 	public synchronized boolean recordLearn (
 			int ballot, int value, int server_id, int quorum) {
-		if (this.decided || ballot < this.accept_ballot)
+		if (this.decided)
 			return false;
-		if (ballot > this.accept_ballot) {
-			this.accept_ballot = ballot;
-			this.learned_value = value;
-			this.accepted_by.clear ();
-		} else if (value != this.learned_value) {
-			return false;
+		LearnVotes votes = this.learn_votes.get (ballot);
+		if (votes == null) {
+			votes = new LearnVotes (value);
+			this.learn_votes.put (ballot, votes);
 		}
-		this.accepted_by.add (server_id);
-		if (this.accepted_by.size () < quorum)
+		if (votes.value != value)
 			return false;
-		this.command_id = this.learned_value;
+		votes.accepted_by.add (server_id);
+		if (votes.accepted_by.size () < quorum)
+			return false;
+		this.command_id = votes.value;
+		this.accept_ballot = ballot;
 		this.decided = true;
 		return true;
 	}
 
-	public synchronized int getAcceptCount () {
-		return this.accepted_by.size ();
+	public synchronized int getAcceptCount (int ballot) {
+		LearnVotes votes = this.learn_votes.get (ballot);
+		return votes == null ? 0 : votes.accepted_by.size ();
 	}
 
 	public synchronized int getProposedRequestId () {
@@ -167,6 +154,15 @@ public class PaxosInstance {
 
 	public synchronized void markExecuted () {
 		this.executed = true;
+	}
+
+	private static final class LearnVotes {
+		private final int value;
+		private final Set<Integer> accepted_by = new HashSet<> ();
+
+		private LearnVotes(int value) {
+			this.value = value;
+		}
 	}
 
 	private static final class LocalProposal {

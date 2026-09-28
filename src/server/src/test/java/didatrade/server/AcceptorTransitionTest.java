@@ -28,6 +28,44 @@ class AcceptorTransitionTest {
 	}
 
 	@Test
+	void decidedSlotAcceptsSameValueAtNewerBallot () {
+		DidaTradeServerState state = new DidaTradeServerState ();
+		PaxosInstance entry = new PaxosInstance (0);
+		assertTrue (entry.decide (4, 100));
+
+		DidaTradeServerState.PhaseTwoState result = state.processPhaseTwo (entry, 5, 100);
+
+		assertTrue (result.accepted);
+		assertEquals (5, result.maxballot);
+		assertEquals (100, entry.getCommandId ());
+		assertEquals (4, entry.getAcceptBallot ());
+		PaxosInstance.PhaseOneState snapshot = state.processPhaseOne (entry, 5);
+		assertEquals (100, snapshot.value);
+		assertEquals (5, snapshot.valballot);
+	}
+
+	@Test
+	void decidedSlotRejectsConflictingValueButObservesHigherBallot () {
+		DidaTradeServerState state = new DidaTradeServerState ();
+		PaxosInstance entry = new PaxosInstance (0);
+		assertTrue (state.processPhaseTwo (entry, 4, 100).accepted);
+		assertTrue (entry.decide (4, 100));
+		assertTrue (state.processPhaseOne (entry, 5).accepted);
+
+		DidaTradeServerState.PhaseTwoState result = state.processPhaseTwo (entry, 8, 200);
+
+		assertFalse (result.accepted);
+		assertEquals (8, result.maxballot);
+		assertEquals (8, state.getCurrentBallot ());
+		assertEquals (100, entry.getCommandId ());
+		assertEquals (4, entry.getAcceptBallot ());
+		PaxosInstance.PhaseOneState snapshot = state.processPhaseOne (entry, 8);
+		assertEquals (100, snapshot.value);
+		assertEquals (4, snapshot.valballot);
+		assertFalse (state.processPhaseTwo (entry, 6, 100).accepted);
+	}
+
+	@Test
 	void phaseOneSnapshotAlwaysPairsValueWithItsAcceptedBallot () throws Exception {
 		ExecutorService workers = Executors.newFixedThreadPool (2);
 		try {

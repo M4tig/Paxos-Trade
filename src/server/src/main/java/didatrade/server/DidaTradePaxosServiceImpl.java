@@ -120,12 +120,12 @@ public class DidaTradePaxosServiceImpl extends DidaTradePaxosServiceGrpc.DidaTra
 
 		this.server_state.applyDebugState ();
 
-		PaxosInstance entry = this.server_state.paxos_log.testAndSetEntry (instance);
-		this.server_state.setCurrentBallot (ballot);
 		if (this.server_state.scheduler.isacceptor (server_id, ballot)) {
+			PaxosInstance entry = this.server_state.paxos_log.testAndSetEntry (instance);
+			this.server_state.setCurrentBallot (ballot);
 			boolean became_decided = entry.recordLearn (
 					ballot, value, server_id, this.server_state.scheduler.quorum (ballot));
-			System.out.println ("Paxos learner for instance " + instance + " : number of distinct accepts " + entry.getAcceptCount ());
+			System.out.println ("Paxos learner for instance " + instance + " : number of distinct accepts " + entry.getAcceptCount (ballot));
 			if (became_decided) {
 				System.out.println ("Paxos learner: waking up the main loop");
 				this.server_state.updateCompletedBallot (ballot);

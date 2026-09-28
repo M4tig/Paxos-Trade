@@ -96,7 +96,7 @@ final class PaxosProposer {
 		DidaTradePaxos.PhaseTwoRequest request = DidaTradePaxos.PhaseTwoRequest
 				.newBuilder ().setInstance (instance).setRequestballot (ballot)
 				.setValue (value).build ();
-		PhaseTwoResponseProcessor processor = new PhaseTwoResponseProcessor (quorum);
+		PhaseTwoResponseProcessor processor = new PhaseTwoResponseProcessor (quorum, acceptors);
 		ArrayList<DidaTradePaxos.PhaseTwoReply> responses = new ArrayList<> ();
 		GenericResponseCollector<DidaTradePaxos.PhaseTwoReply> collector = new GenericResponseCollector<> (
 				responses, n_acceptors, processor);
