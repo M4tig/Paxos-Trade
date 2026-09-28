@@ -50,6 +50,8 @@ public class PaxosInstance {
 	public synchronized boolean accept (int ballot, int value) {
 		if (this.decided && value != this.command_id)
 			return false;
+		if (ballot == this.write_ballot && value != this.accepted_value)
+			return false;
 		this.accepted_value = value;
 		this.write_ballot = ballot;
 		return true;

@@ -28,6 +28,23 @@ class AcceptorTransitionTest {
 	}
 
 	@Test
+	void sameBallotCannotAcceptTwoDifferentValuesBeforeDecision () {
+		DidaTradeServerState state = new DidaTradeServerState ();
+		PaxosInstance entry = new PaxosInstance (0);
+
+		assertTrue (state.processPhaseTwo (entry, 5, 100).accepted);
+		assertTrue (state.processPhaseTwo (entry, 5, 100).accepted);
+		DidaTradeServerState.PhaseTwoState conflicting = state.processPhaseTwo (entry, 5, 200);
+
+		assertFalse (conflicting.accepted);
+		assertEquals (5, conflicting.maxballot);
+		PaxosInstance.PhaseOneState snapshot = state.processPhaseOne (entry, 5);
+		assertEquals (100, snapshot.value);
+		assertEquals (5, snapshot.valballot);
+		assertFalse (entry.isDecided ());
+	}
+
+	@Test
 	void decidedSlotAcceptsSameValueAtNewerBallot () {
 		DidaTradeServerState state = new DidaTradeServerState ();
 		PaxosInstance entry = new PaxosInstance (0);
