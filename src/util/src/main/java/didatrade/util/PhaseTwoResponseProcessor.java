@@ -1,21 +1,27 @@
 package didatrade.util;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import didatrade.DidaTradePaxos;
-import didatrade.DidaTradePaxosServiceGrpc; // ignore-unused-import
 
 public class PhaseTwoResponseProcessor extends GenericResponseProcessor<DidaTradePaxos.PhaseTwoReply> {
 	private boolean accepted;
 	private int maxballot;
-	private int quorum;
-	private int responses;
+	private final int quorum;
+	private int accepted_count;
+	private final Set<Integer> acceptors;
+	private final Set<Integer> responders;
 
-	public PhaseTwoResponseProcessor(int q) {
-		this.accepted = true;
+	public PhaseTwoResponseProcessor(int q, List<Integer> acceptor_ids) {
+		this.accepted = false;
 		this.maxballot = 0;
 		this.quorum = q;
-		this.responses = 0;
+		this.accepted_count = 0;
+		this.acceptors = new HashSet<> (acceptor_ids);
+		this.responders = new HashSet<> ();
 	}
 
 	public boolean getAccepted () {
@@ -27,15 +33,20 @@ public class PhaseTwoResponseProcessor extends GenericResponseProcessor<DidaTrad
 	}
 
 	public synchronized boolean onNext (ArrayList<DidaTradePaxos.PhaseTwoReply> all_responses, DidaTradePaxos.PhaseTwoReply last_response) {
-		this.responses++;
+		int server_id = last_response.getServerid ();
+		if (!this.acceptors.contains (server_id) || !this.responders.add (server_id))
+			return false;
 		if (last_response.getAccepted () == false) {
 			this.accepted = false;
 			if (last_response.getMaxballot () > this.maxballot)
 				this.maxballot = last_response.getMaxballot ();
 			return true;
-		} else if (responses >= quorum)
+		}
+		this.accepted_count++;
+		if (this.accepted_count >= this.quorum) {
+			this.accepted = true;
 			return true;
-		else
-			return false;
+		}
+		return false;
 	}
 }
