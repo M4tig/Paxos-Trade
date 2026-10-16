@@ -1,5 +1,7 @@
 # DidaTrade
 
+The design and implementation are described in [final-report.pdf](final-report.pdf).
+
 ## Install [just](https://just.systems/man/en/packages.html)
 
 - macOS: `brew install just`
