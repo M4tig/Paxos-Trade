@@ -122,6 +122,7 @@ public class Console {
 				case "help" :
 					System.out.println ("\thelp");
 					System.out.println ("\tballot <number> <replica>");
+					System.out.println ("\tactivate <number> <replica>");
 					System.out.println ("\tdebug <mode> <replica>");
 					System.out.println ("\t  0 no-op, 1 crash, 2 freeze, 3 un-freeze, 4 slow-mode-on, 5 slow-mode-off");
 					System.out.println ("\texit");
@@ -133,7 +134,6 @@ public class Console {
 						if (ballot_number < this.getLastBallot ())
 							System.out.println ("usage: ballot must be larger or equal than " + last_ballot + ".\n");
 						else {
-							this.setLastBallot (ballot_number);
 							try {
 								replica = Integer.parseInt (parameter2);
 
@@ -161,6 +161,7 @@ public class Console {
 											Iterator<DidaTradeMaster.NewBallotReply> newballot_iterator = newballot_responses.iterator ();
 											DidaTradeMaster.NewBallotReply newballot_reply = newballot_iterator.next ();
 											int completed = newballot_reply.getCompletedballot ();
+											setLastBallot (ballot_number);
 											System.out.println ("reply received to new ballot request for ballot = " + ballot_number + " with completed = "
 													+ completed);
 											setBallotCompleted (completed);
@@ -176,12 +177,11 @@ public class Console {
 					break;
 				case "activate" :
 					System.out.println ("activate " + parameter1);
-					if (parameter1 != null) {
+					if (parameter1 != null && parameter2 != null) {
 						int ballot_number = Integer.parseInt (parameter1);
 						if (ballot_number < this.getLastBallot ())
 							System.out.println ("usage: ballot must be larger or equal than " + last_ballot + ".\n");
 						else {
-							this.setLastBallot (ballot_number);
 							try {
 								replica = Integer.parseInt (parameter2);
 
@@ -197,7 +197,7 @@ public class Console {
 								CollectorStreamObserver<DidaTradeMaster.ActivateReply> activate_observer = new CollectorStreamObserver<DidaTradeMaster.ActivateReply> (
 										activate_collector);
 								activate_request.setReqid (reqid);
-								activate_request.setCompletedballot (this.ballot_completed);
+								activate_request.setCompletedballot (ballot_number);
 								console_async_stubs[replica].activate (activate_request.build (), activate_observer);
 
 								// collect the result in background
@@ -207,6 +207,8 @@ public class Console {
 										if (activate_responses.size () >= 1) {
 											Iterator<DidaTradeMaster.ActivateReply> activate_iterator = activate_responses.iterator ();
 											DidaTradeMaster.ActivateReply activate_reply = activate_iterator.next ();
+											if (activate_reply.getAck ())
+												setLastBallot (ballot_number);
 											System.out.println ("reply received to activate request for ballot = " + ballot_number + " with ack = "
 													+ activate_reply.getAck ());
 										} else
@@ -217,7 +219,7 @@ public class Console {
 							}
 						}
 					} else
-						System.out.println ("usage: activate <replica>");
+						System.out.println ("usage: activate <ballot> <replica>");
 					break;
 				case "debug" :
 					System.out.println ("debug " + parameter1 + " " + parameter2);

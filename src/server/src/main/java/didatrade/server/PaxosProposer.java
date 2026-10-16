@@ -1,5 +1,7 @@
 package didatrade.server;
 
+import static didatrade.configs.ScheduleC.MEMBERSHIP_CHANGE_BALLOT;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -15,6 +17,7 @@ import didatrade.util.FastRoundResponseProcessor;
 import didatrade.util.GenericResponseCollector;
 import didatrade.util.PhaseOneResponseProcessor;
 import didatrade.util.PhaseTwoResponseProcessor;
+import didatrade.util.StateTransferResponseProcessor;
 
 /** Phase 1 once per ballot, classic recovery, and the transition into a Fast round. */
 final class PaxosProposer {
@@ -38,8 +41,16 @@ final class PaxosProposer {
 
 		List<Integer> acceptors = this.server_state.scheduler.acceptors (ballot);
 		PhaseOneResult phase_one = this.runPhaseOne (
-				acceptors, acceptors.size (), ballot);
-		if (phase_one.aborted)
+				acceptors, acceptors.size (), ballot, ballot);
+		if (!this.server_state.canProposeFor (ballot))
+			return false;
+		if (this.server_state.scheduler.dynamicMembership () && ballot >= MEMBERSHIP_CHANGE_BALLOT && !phase_one.membership_transferred) {
+			// The new group alone may not resolve old Fast votes. Consult the old
+			// group even when this first attempt could not select a safe value.
+			acceptors = this.server_state.scheduler.acceptorsinrange (0, ballot);
+			phase_one = this.runPhaseOne (acceptors, acceptors.size (), ballot, 0);
+		}
+		if (phase_one.aborted || !this.server_state.canProposeFor (ballot))
 			return false;
 
 		for (int instance : phase_one.instances ())
@@ -127,6 +138,42 @@ final class PaxosProposer {
 		return false;
 	}
 
+	boolean transferComplete (int ballot) {
+		return this.server_state.getCompletedBallot () == ballot;
+	}
+
+	boolean finishTransfer (int ballot) {
+		if (!this.server_state.canProposeFor (ballot) || !this.fastRecoveryComplete (ballot))
+			return false;
+		if (this.transferComplete (ballot))
+			return true;
+		// Transfer only IDs: the project guarantees eventual delivery of command
+		// parameters from clients to every replica, even if debug modes delay them.
+		DidaTradePaxos.InstallStateRequest.Builder builder = DidaTradePaxos.InstallStateRequest.newBuilder ()
+				.setBallot (ballot);
+		for (int slot = 0; slot < this.recoveryLimit (ballot); slot++) {
+			int value = this.server_state.paxos_log.getEntry (slot).getCommandId ();
+			builder.addEntries (DidaTradePaxos.PhaseOneResponseLogObject.newBuilder ()
+					.setInstance (slot).setValue (value).setValballot (ballot));
+		}
+		DidaTradePaxos.InstallStateRequest request = builder.build ();
+		List<Integer> learners = this.server_state.scheduler.learners (ballot);
+		StateTransferResponseProcessor processor = new StateTransferResponseProcessor (
+				ballot, this.server_state.scheduler.classicQuorum (ballot), this.server_state.scheduler.acceptors (ballot));
+		GenericResponseCollector<DidaTradePaxos.InstallStateReply> collector = new GenericResponseCollector<> (
+				new ArrayList<> (), learners.size (), processor);
+		for (int learner : learners)
+			this.server_state.async_stubs[learner].withDeadlineAfter (RPC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+					.installstate (request, new CollectorStreamObserver<> (collector));
+		collector.waitUntilDone ();
+		if (processor.getMaxballot () > ballot)
+			this.server_state.setCurrentBallot (processor.getMaxballot ());
+		if (!processor.getAccepted () || !this.server_state.canProposeFor (ballot))
+			return false;
+		this.server_state.setCompletedBallot (ballot);
+		return true;
+	}
+
 	void propose (PaxosInstance entry, int ballot) {
 		try {
 			if (!this.server_state.canProposeFor (ballot))
@@ -153,11 +200,11 @@ final class PaxosProposer {
 	}
 
 	private PhaseOneResult runPhaseOne (
-			List<Integer> acceptors, int n_acceptors, int ballot) {
+			List<Integer> acceptors, int n_acceptors, int ballot, int low_ballot) {
 		DidaTradePaxos.PhaseOneRequest request = DidaTradePaxos.PhaseOneRequest
 				.newBuilder ().setRequestballot (ballot).build ();
 		PhaseOneResponseProcessor processor = new PhaseOneResponseProcessor (
-				this.server_state.scheduler, ballot);
+				this.server_state.scheduler, ballot, low_ballot);
 		ArrayList<DidaTradePaxos.PhaseOneReply> responses = new ArrayList<> ();
 		GenericResponseCollector<DidaTradePaxos.PhaseOneReply> collector = new GenericResponseCollector<> (
 				responses, n_acceptors, processor);
@@ -212,16 +259,20 @@ final class PaxosProposer {
 	static final class PhaseOneResult {
 		final boolean aborted;
 		final int maxballot;
+		final boolean membership_transferred;
 		private final int[] instances;
 		private final Map<Integer, Integer> commands;
 
 		PhaseOneResult(PhaseOneResponseProcessor processor) {
+			this.membership_transferred = processor.membershipTransferred ();
 			this.aborted = !processor.getAccepted ();
 			this.maxballot = processor.getMaxballot ();
 			this.instances = processor.instances ();
 			this.commands = new HashMap<> ();
-			for (int instance : this.instances)
-				this.commands.put (instance, processor.commandFor (instance));
+			for (int instance : this.instances) {
+				int id = processor.commandFor (instance);
+				this.commands.put (instance, id);
+			}
 		}
 
 		int[] instances () {

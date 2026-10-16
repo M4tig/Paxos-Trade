@@ -13,6 +13,31 @@ import io.grpc.stub.StreamObserver;
 class FastPaxosLearnServiceTest {
 
 	@Test
+	void scheduleCRequiresFourFastVotesButThreeClassicVotesInBothConfigurations () {
+		for (int ballot : new int[]{0, 2}) {
+			DidaTradeServerState state = state ();
+			state.scheduler = new ConfigurationScheduler ('C');
+			DidaTradePaxosServiceImpl service = new DidaTradePaxosServiceImpl (state);
+			java.util.List<Integer> acceptors = state.scheduler.acceptors (ballot);
+			for (int i = 0; i < 3; i++)
+				learn (service, 0, ballot, 100, acceptors.get (i));
+			assertFalse (state.paxos_log.getEntry (0).isDecided ());
+			learn (service, 0, ballot, 100, acceptors.get (0));
+			assertFalse (state.paxos_log.getEntry (0).isDecided ());
+			learn (service, 0, ballot, 100, acceptors.get (3));
+			assertTrue (state.paxos_log.getEntry (0).isDecided ());
+			assertEquals (100, state.paxos_log.getEntry (0).getCommandId ());
+
+			for (int i = 0; i < 2; i++)
+				learnClassic (service, 1, ballot, 200, acceptors.get (i));
+			assertFalse (state.paxos_log.getEntry (1).isDecided ());
+			learnClassic (service, 1, ballot, 200, acceptors.get (2));
+			assertTrue (state.paxos_log.getEntry (1).isDecided ());
+			assertEquals (200, state.paxos_log.getEntry (1).getCommandId ());
+		}
+	}
+
+	@Test
 	void matchingFastQuorumDecidesWithoutChangingBallot () {
 		DidaTradeServerState state = state ();
 		DidaTradePaxosServiceImpl service = new DidaTradePaxosServiceImpl (state);
@@ -29,7 +54,7 @@ class FastPaxosLearnServiceTest {
 	}
 
 	@Test
-	void threeWayFastCollisionWaitsForManualBallotChange () {
+	void threeWayFastCollisionAdvancesToNextBallot () {
 		DidaTradeServerState state = state ();
 		DidaTradePaxosServiceImpl service = new DidaTradePaxosServiceImpl (state);
 
@@ -38,26 +63,65 @@ class FastPaxosLearnServiceTest {
 		assertEquals (0, state.getCurrentBallot ());
 		learn (service, 0, 0, 300, 2);
 
-		PaxosInstance entry = state.paxos_log.getEntry (0);
-		assertFalse (entry.isDecided ());
-		assertTrue (entry.cannotReachQuorum (0, 4, 5));
-		assertEquals (0, state.getCurrentBallot ());
-		// The operator must explicitly select a new ballot to initiate recovery.
-		state.setCurrentBallot (1);
+		assertFalse (state.paxos_log.getEntry (0).isDecided ());
 		assertEquals (1, state.getCurrentBallot ());
 	}
 
 	@Test
-	void staleCollisionEvidenceNeverAdvancesBallotAutomatically () {
+	void splitBelowFastQuorumOfLearnsKeepsBallot () {
+		DidaTradeServerState state = state ();
+		DidaTradePaxosServiceImpl service = new DidaTradePaxosServiceImpl (state);
+
+		learn (service, 0, 0, 100, 0);
+		learn (service, 0, 0, 100, 1);
+		learn (service, 0, 0, 200, 2);
+
+		assertFalse (state.paxos_log.getEntry (0).isDecided ());
+		assertEquals (0, state.getCurrentBallot ());
+	}
+
+	@Test
+	void fastQuorumOfLearnsWithoutQuorumValueAdvancesBallot () {
+		DidaTradeServerState state = state ();
+		DidaTradePaxosServiceImpl service = new DidaTradePaxosServiceImpl (state);
+
+		// Acceptor 4 may never vote in this slot, so waiting for it could block forever.
+		learn (service, 0, 0, 100, 0);
+		learn (service, 0, 0, 100, 1);
+		learn (service, 0, 0, 100, 2);
+		assertEquals (0, state.getCurrentBallot ());
+		learn (service, 0, 0, 200, 3);
+
+		assertFalse (state.paxos_log.getEntry (0).isDecided ());
+		assertEquals (1, state.getCurrentBallot ());
+	}
+
+	@Test
+	void lateLearnsFromCollidedBallotAdvanceOnlyOnce () {
 		DidaTradeServerState state = state ();
 		DidaTradePaxosServiceImpl service = new DidaTradePaxosServiceImpl (state);
 
 		learn (service, 0, 0, 100, 0);
 		learn (service, 0, 0, 200, 1);
 		learn (service, 0, 0, 300, 2);
-		assertEquals (0, state.getCurrentBallot ());
+		assertEquals (1, state.getCurrentBallot ());
 
-		learn (service, 0, 0, 100, 0);
+		learn (service, 0, 0, 400, 3);
+		learn (service, 1, 0, 500, 0);
+		learn (service, 1, 0, 600, 1);
+		learn (service, 1, 0, 700, 2);
+
+		assertEquals (1, state.getCurrentBallot ());
+	}
+
+	@Test
+	void classicLearnsNeverAdvanceBallot () {
+		DidaTradeServerState state = state ();
+		DidaTradePaxosServiceImpl service = new DidaTradePaxosServiceImpl (state);
+
+		learnClassic (service, 0, 0, 100, 0);
+		learnClassic (service, 0, 0, 200, 1);
+		learnClassic (service, 0, 0, 300, 2);
 
 		assertEquals (0, state.getCurrentBallot ());
 	}
@@ -73,11 +137,12 @@ class FastPaxosLearnServiceTest {
 		assertFalse (state.paxos_log.getEntry (0).isDecided ());
 		learn (service, 0, 0, 100, 2);
 		learn (service, 0, 0, 100, 3);
+		// Four Learns split 3-1 advance the ballot, yet the fifth can still choose 100.
+		assertEquals (1, state.getCurrentBallot ());
 		learn (service, 0, 0, 100, 4);
 
 		assertTrue (state.paxos_log.getEntry (0).isDecided ());
 		assertEquals (100, state.paxos_log.getEntry (0).getCommandId ());
-		assertEquals (0, state.getCurrentBallot ());
 	}
 
 	@Test

@@ -30,12 +30,13 @@ public final class DidaTradeServerState {
 	DidaTradePaxosServiceGrpc.DidaTradePaxosServiceStub[] async_stubs;
 
 	private int current_ballot;
-	private int completed_ballot;
+	private int completed_ballot = -1;
 	private DebugState debug_state;
 	private boolean fastpaxos_on;
 	private int fast_first_instance;
-	private int ran_phase_one_for_ballot;
-	private int last_executed_instance;
+	private int ran_phase_one_for_ballot = -1;
+	private int last_executed_instance = -1;
+	private boolean membership_transferred;
 
 	MainLoop main_loop;
 	Thread main_loop_worker;
@@ -90,6 +91,7 @@ public final class DidaTradeServerState {
 	public synchronized void setCurrentBallot (int ballot) {
 		this.disableFastPaxosIfNeeded (ballot);
 		this.current_ballot = Math.max (this.current_ballot, ballot);
+		this.notifyAll ();
 	}
 
 	private void disableFastPaxosIfNeeded (int ballot) {
@@ -98,7 +100,15 @@ public final class DidaTradeServerState {
 	}
 
 	public synchronized boolean canProposeFor (int ballot) {
-		return ballot >= 0 && ballot == this.current_ballot && this.scheduler.leader (ballot) == this.my_id;
+		return ballot == this.current_ballot && this.scheduler.leader (ballot) == this.my_id;
+	}
+
+	public synchronized boolean membershipTransferred () {
+		return this.membership_transferred;
+	}
+
+	synchronized void noteMembershipTransferred () {
+		this.membership_transferred = true;
 	}
 
 	public record BalanceResult(int balance, int lastExecutedInstance) {
@@ -152,27 +162,24 @@ public final class DidaTradeServerState {
 	// Lock order: server state, then one PaxosInstance. No RPC runs under either lock.
 	public synchronized PaxosInstance.PhaseOneState processPhaseOne (
 			PaxosInstance entry, int ballot) {
-		this.disableFastPaxosIfNeeded (ballot);
 		boolean accepted = ballot >= this.current_ballot;
 		if (accepted)
-			this.current_ballot = ballot;
+			this.setCurrentBallot (ballot);
 		return entry.phaseOneState (accepted, ballot, this.current_ballot);
 	}
 
 	public synchronized PhaseOneState processPhaseOne (int ballot) {
-		this.disableFastPaxosIfNeeded (ballot);
 		boolean accepted = ballot >= this.current_ballot;
 		if (accepted)
-			this.current_ballot = ballot;
+			this.setCurrentBallot (ballot);
 		return new PhaseOneState (accepted, this.current_ballot);
 	}
 
 	public synchronized PhaseTwoState processPhaseTwo (
 			PaxosInstance entry, int ballot, int value) {
-		this.disableFastPaxosIfNeeded (ballot);
 		boolean accepted = false;
-		if (ballot >= this.current_ballot) {
-			this.current_ballot = ballot;
+		if (this.scheduler.isacceptor (this.my_id, ballot) && ballot >= this.current_ballot) {
+			this.setCurrentBallot (ballot);
 			accepted = entry.accept (ballot, value);
 			if (accepted)
 				entry.noteClassicAcceptance (ballot, value);
@@ -203,8 +210,7 @@ public final class DidaTradeServerState {
 	public synchronized boolean openFastRound (int ballot, int first_fast_instance) {
 		if (!this.canOpenFastRound (ballot) || first_fast_instance < 0)
 			return false;
-		this.disableFastPaxosIfNeeded (ballot);
-		this.current_ballot = ballot;
+		this.setCurrentBallot (ballot);
 		// Never allow Fast proposals to reuse slots reserved for classic recovery.
 		this.fast_first_instance = Math.max (this.fast_first_instance, first_fast_instance);
 		this.setFastPaxosMode (true);
@@ -222,6 +228,15 @@ public final class DidaTradeServerState {
 		return new FastVoteState (accepted, ballot, entry.getInstanceNb ());
 	}
 
+	// If the next ballot's leader has crashed, the system stays blocked until the console
+	// issues a newer ballot.
+	public synchronized boolean advanceFromCollidedFastBallot (int ballot) {
+		if (ballot != this.current_ballot)
+			return false;
+		this.setCurrentBallot (ballot + 1);
+		return true;
+	}
+
 	public synchronized int getCompletedBallot () {
 		return this.completed_ballot;
 	}
@@ -236,8 +251,8 @@ public final class DidaTradeServerState {
 	}
 
 	public synchronized void updateCompletedBallot (int ballot) {
-		// WARNING: THIS ONLY WORKS FOR CONFIGURATIONS WHERE THERE IS NO NEED FOR STATE-TRANSFER!!!!!
-		// TODO: NEEDS TO BE UPDATE FOR THE PROJECT
+		if (this.scheduler != null && this.scheduler.dynamicMembership ())
+			return; // Dynamic completion is acknowledged only after state transfer.
 
 		ballot = this.findMaxDecidedBallot ();
 		if (ballot > this.completed_ballot)
@@ -252,7 +267,8 @@ public final class DidaTradeServerState {
 	}
 
 	public synchronized int waitForCompletedBallot (int ballot) {
-		while (this.completed_ballot < ballot) {
+		// Stop waiting if a newer ballot supersedes this ballot before completion.
+		while (this.completed_ballot < ballot && this.current_ballot <= ballot) {
 			try {
 				wait ();
 			} catch (InterruptedException e) {

@@ -4,6 +4,18 @@
 syntax = "proto3";
 package didatrade;
 
+// Only the configured leader sends this after confirming the prefix by Phase 2.
+message InstallStateRequest {
+  int32 ballot = 1;
+  repeated PhaseOneResponseLogObject entries = 4;
+}
+
+message InstallStateReply {
+  int32 serverid = 1;
+  bool accepted = 2;
+  int32 maxballot = 3;
+}
+
 message PhaseOneRequest {
   int32 requestballot	= 1;
 }
@@ -14,6 +26,7 @@ message PhaseOneReply {
   bool  accepted 	= 3;
   int32 maxballot       = 4;
   repeated PhaseOneResponseLogObject responseLogObjects = 5;
+  bool membershiptransferred = 6;
 }
 
 message PhaseOneResponseLogObject {
@@ -62,6 +75,7 @@ message LearnReply {
 }
 
 service DidaTradePaxosService {
+  rpc installstate (InstallStateRequest) returns (InstallStateReply);
   rpc phaseone (PhaseOneRequest) returns (PhaseOneReply);
   rpc phasetwo (PhaseTwoRequest) returns (PhaseTwoReply);
   rpc openfast (OpenFastRequest) returns (OpenFastReply);

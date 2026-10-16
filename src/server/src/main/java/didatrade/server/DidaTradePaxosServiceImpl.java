@@ -24,6 +24,7 @@ public class DidaTradePaxosServiceImpl extends DidaTradePaxosServiceGrpc.DidaTra
 		this.server_state.applyDebugState ();
 
 		DidaTradeServerState.PhaseOneState phase_one;
+		boolean membership_transferred;
 		List<DidaTradePaxos.PhaseOneResponseLogObject> accepted_snapshots;
 		synchronized (this.server_state) {
 			// Snapshot *values*, not mutable instance references, atomically with the promise.
@@ -36,6 +37,7 @@ public class DidaTradePaxosServiceImpl extends DidaTradePaxosServiceGrpc.DidaTra
 								.setValballot (snapshot.valballot).build ();
 					}).toList ();
 			phase_one = this.server_state.processPhaseOne (ballot);
+			membership_transferred = this.server_state.membershipTransferred ();
 		}
 
 		DidaTradePaxos.PhaseOneReply.Builder response_builder = DidaTradePaxos.PhaseOneReply.newBuilder ();
@@ -44,6 +46,7 @@ public class DidaTradePaxosServiceImpl extends DidaTradePaxosServiceGrpc.DidaTra
 		response_builder.setAccepted (phase_one.accepted);
 		response_builder.setMaxballot (phase_one.maxballot);
 		response_builder.addAllResponseLogObjects (accepted_snapshots);
+		response_builder.setMembershiptransferred (membership_transferred);
 
 		DidaTradePaxos.PhaseOneReply response = response_builder.build ();
 
@@ -84,6 +87,19 @@ public class DidaTradePaxosServiceImpl extends DidaTradePaxosServiceGrpc.DidaTra
 		if (phase_two.accepted)
 			PaxosLearnerNotifier.notifyAccepted (this.server_state, instance, ballot, value, true);
 
+	}
+
+	@Override
+	public void installstate (DidaTradePaxos.InstallStateRequest request,
+			StreamObserver<DidaTradePaxos.InstallStateReply> observer) {
+		this.server_state.applyDebugState ();
+		boolean accepted = StateTransfer.install (this.server_state, request);
+		observer.onNext (DidaTradePaxos.InstallStateReply.newBuilder ()
+				.setServerid (this.server_state.my_id).setAccepted (accepted)
+				.setMaxballot (this.server_state.getCurrentBallot ()).build ());
+		observer.onCompleted ();
+		if (accepted && this.server_state.main_loop != null)
+			this.server_state.main_loop.wakeup ();
 	}
 
 	@Override
@@ -133,11 +149,14 @@ public class DidaTradePaxosServiceImpl extends DidaTradePaxosServiceGrpc.DidaTra
 				this.server_state.updateCompletedBallot (ballot);
 				this.server_state.main_loop.wakeup ();
 			} else if (!request.getClassic ()
-					&& entry.cannotReachQuorum (ballot, decision_quorum,
-							this.server_state.scheduler.acceptors (ballot).size ())) {
-				// Debug aid only: ballots change via the console, never automatically.
+					&& entry.fastRoundCollided (ballot, decision_quorum,
+							this.server_state.scheduler.acceptors (ballot).size ())
+					&& this.server_state.advanceFromCollidedFastBallot (ballot)) {
+				// Learners may disagree, e.g. on a 4-1 split another learner may see the
+				// four matching votes first and decide. Advancing stays safe either way.
 				System.out.println ("Paxos learner: instance " + instance + " collided in Fast ballot "
-						+ ballot + ", no value can reach the Fast quorum; needs a new ballot");
+						+ ballot + ", no value reached the Fast quorum; advancing to ballot " + (ballot + 1));
+				this.server_state.main_loop.wakeup ();
 			}
 		}
 
