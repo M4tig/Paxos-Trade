@@ -56,9 +56,6 @@ public class RequestHistory {
 		return record;
 	}
 
-	// Returns false (without queuing the record) for a requestid that collides with an
-	// internal sentinel; the caller must respond with a failure instead of blocking forever
-	// on a record no execution path can ever reach.
 	public synchronized boolean addToPending (int requestid, RequestRecord record) {
 		if (!CommandIdKind.isClientRequest (requestid))
 			return false;

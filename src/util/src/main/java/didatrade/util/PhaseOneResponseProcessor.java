@@ -172,10 +172,8 @@ public class PhaseOneResponseProcessor
 				.sorted ()
 				.toList ();
 
-		// If multiple reported values could have reached the Fast quorum, the
-		// coordinator cannot safely recover this slot until further replies arrive.
-		// Use the origin schedule's Fast threshold. Majority-only schedules may
-		// need additional replies beyond their initial recovery quorum.
+		// In Fast Paxos, more than one reported value could still reach the Fast quorum
+		// of this slot's ballot. Wait for more replies; a majority recovery quorum is not always enough.
 		if (possible_chosen_values.size () > 1)
 			return null;
 		if (possible_chosen_values.size () == 1)

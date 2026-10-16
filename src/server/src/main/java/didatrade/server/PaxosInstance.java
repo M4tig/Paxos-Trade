@@ -80,7 +80,7 @@ public class PaxosInstance {
 		return this.votes.acceptCount (ballot);
 	}
 
-	// Not proof that nothing was chosen: on a 3-1 split the missing acceptor may still
+	// Not proof that nothing was chosen: missing acceptors may still
 	// complete the quorum. Message from prefessor:
 	// "A node automatically changes the ballot after receiving a fast quorum of “learns”
 	// where no value has a supermajority." Therefore we either advance here or when we are already
@@ -95,7 +95,7 @@ public class PaxosInstance {
 	// ---- Decision ----
 
 	// Records the decision, for example after a successful classic Phase 2 or a state transfer.
-	// The first decision wins; true only if this call decided the slot.
+	// True only if this call decided the slot.
 	public synchronized boolean decide (int ballot, int value) {
 		boolean first = !this.decided;
 		this.confirm (ballot, value);
@@ -103,9 +103,7 @@ public class PaxosInstance {
 	}
 
 	// The single place that sets the decision: used for a quorum of votes, a successful Phase 2
-	// and a state transfer. A decided value never changes. A successful classic reproposal of an
-	// already-chosen value confirms the higher ballot even if its asynchronous Learns never
-	// arrive. True if the decision is new or its ballot rose.
+	// and a state transfer. True if the decision is new or its ballot rose.
 	private boolean confirm (int ballot, int value) {
 		if (this.decided && value != this.decided_value)
 			return false;

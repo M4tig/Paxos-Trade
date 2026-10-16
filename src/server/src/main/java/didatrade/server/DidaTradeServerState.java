@@ -273,7 +273,7 @@ public final class DidaTradeServerState {
 
 	// Completion established from outside the log: the console's last known completed ballot
 	// (static schedules), or a finished state transfer (dynamic membership, where decided
-	// slots alone are not enough). Only raises the value; wakes waitForCompletedBallot.
+	// slots alone are not enough).
 	public synchronized void setCompletedBallot (int ballot) {
 		if (ballot > this.last_completed_ballot)
 			this.last_completed_ballot = ballot;
